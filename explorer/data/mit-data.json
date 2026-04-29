@@ -1,0 +1,557 @@
+{
+  "id": "topRoot",
+  "cls": "topRoot",
+  "label": "Root",
+  "dn": "",
+  "rn": "",
+  "desc": "The root of the entire ACI Management Information Tree. Every managed object in the fabric lives under this node. The two main branches are polUni (policy universe — all configuration) and fabricTopology (physical fabric state).",
+  "children": [
+    {
+      "id": "polUni",
+      "cls": "polUni",
+      "label": "Policy Universe",
+      "dn": "uni",
+      "rn": "uni",
+      "desc": "The top-level container for all policy configuration in ACI. Every tenant, infrastructure policy, VMM domain, and physical domain hangs under this node. When you POST configuration to ACI, you're writing objects under uni.",
+      "rest": { "method": "GET", "url": "/api/mo/uni.json", "note": "Returns the policy universe root" },
+      "children": [
+        {
+          "id": "fvTenant",
+          "cls": "fvTenant",
+          "label": "Tenant",
+          "dn": "uni/tn-{name}",
+          "rn": "tn-{name}",
+          "desc": "A tenant is the top-level isolation boundary for policies. It contains VRFs, bridge domains, application profiles, contracts, L3Outs, and more. Three system tenants exist by default: common, infra, and mgmt.",
+          "exam": "1.6a — Implement ACI logical constructs: Tenant",
+          "rest": {
+            "method": "POST",
+            "url": "/api/mo/uni/tn-Production.json",
+            "body": "{ \"fvTenant\": { \"attributes\": { \"name\": \"Production\", \"descr\": \"Production workloads\" } } }"
+          },
+          "ansible": {
+            "module": "cisco.aci.aci_tenant",
+            "example": "- cisco.aci.aci_tenant:\n    host: \"{{ apic_host }}\"\n    tenant: Production\n    description: \"Production workloads\"\n    state: present"
+          },
+          "terraform": {
+            "resource": "aci_tenant",
+            "example": "resource \"aci_tenant\" \"prod\" {\n  name        = \"Production\"\n  description = \"Production workloads\"\n}"
+          },
+          "children": [
+            {
+              "id": "fvCtx",
+              "cls": "fvCtx",
+              "label": "VRF (Context)",
+              "dn": "uni/tn-{tenant}/ctx-{name}",
+              "rn": "ctx-{name}",
+              "desc": "A VRF (called 'Private Network' in the GUI, 'Context' in the object model) defines a unique Layer 3 forwarding domain. Each VRF has its own routing table. Bridge domains are associated with exactly one VRF. Policy enforcement can be set to 'enforced' or 'unenforced' at the VRF level.",
+              "exam": "1.6c — Implement ACI logical constructs: VRF",
+              "rest": {
+                "method": "POST",
+                "url": "/api/mo/uni/tn-Production/ctx-Prod_VRF.json",
+                "body": "{ \"fvCtx\": { \"attributes\": { \"name\": \"Prod_VRF\", \"pcEnfPref\": \"enforced\" } } }"
+              },
+              "ansible": {
+                "module": "cisco.aci.aci_vrf",
+                "example": "- cisco.aci.aci_vrf:\n    tenant: Production\n    vrf: Prod_VRF\n    policy_control_preference: enforced\n    state: present"
+              },
+              "terraform": {
+                "resource": "aci_vrf",
+                "example": "resource \"aci_vrf\" \"prod_vrf\" {\n  tenant_dn   = aci_tenant.prod.id\n  name        = \"Prod_VRF\"\n  pc_enf_pref = \"enforced\"\n}"
+              },
+              "children": []
+            },
+            {
+              "id": "fvBD",
+              "cls": "fvBD",
+              "label": "Bridge Domain",
+              "dn": "uni/tn-{tenant}/BD-{name}",
+              "rn": "BD-{name}",
+              "desc": "A bridge domain defines a Layer 2 forwarding boundary. Key settings: unicast routing (enable for L3), ARP flooding, L2 unknown unicast mode (flood vs. hardware-proxy), and the associated VRF. Each BD can have multiple subnets.",
+              "exam": "1.6d — Implement ACI logical constructs: Bridge domain\n2.2 — Bridge domain configuration settings",
+              "rest": {
+                "method": "POST",
+                "url": "/api/mo/uni/tn-Production/BD-Web_BD.json",
+                "body": "{ \"fvBD\": { \"attributes\": { \"name\": \"Web_BD\", \"arpFlood\": \"yes\", \"unicastRoute\": \"yes\", \"unkMacUcastAct\": \"flood\" }, \"children\": [ { \"fvRsCtx\": { \"attributes\": { \"tnFvCtxName\": \"Prod_VRF\" } } } ] } }"
+              },
+              "ansible": {
+                "module": "cisco.aci.aci_bd",
+                "example": "- cisco.aci.aci_bd:\n    tenant: Production\n    bd: Web_BD\n    vrf: Prod_VRF\n    arp_flooding: yes\n    l2_unknown_unicast: flood\n    enable_routing: yes\n    state: present"
+              },
+              "terraform": {
+                "resource": "aci_bridge_domain",
+                "example": "resource \"aci_bridge_domain\" \"web_bd\" {\n  tenant_dn          = aci_tenant.prod.id\n  name               = \"Web_BD\"\n  relation_fv_rs_ctx = aci_vrf.prod_vrf.id\n  arp_flood          = \"yes\"\n  unicast_route      = \"yes\"\n  unk_mac_ucast_act  = \"flood\"\n}"
+              },
+              "children": [
+                {
+                  "id": "fvSubnet",
+                  "cls": "fvSubnet",
+                  "label": "Subnet",
+                  "dn": "uni/tn-{tenant}/BD-{bd}/subnet-[{ip}]",
+                  "rn": "subnet-[{ip}]",
+                  "desc": "A subnet under a BD. The gateway IP for endpoints in this BD. Scope can be 'private', 'public' (advertised via L3Out), or 'shared' (leaked between VRFs). Multiple subnets per BD are allowed.",
+                  "rest": {
+                    "method": "POST",
+                    "url": "/api/mo/uni/tn-Production/BD-Web_BD/subnet-[10.1.1.1/24].json",
+                    "body": "{ \"fvSubnet\": { \"attributes\": { \"ip\": \"10.1.1.1/24\", \"scope\": \"public\" } } }"
+                  },
+                  "ansible": {
+                    "module": "cisco.aci.aci_bd_subnet",
+                    "example": "- cisco.aci.aci_bd_subnet:\n    tenant: Production\n    bd: Web_BD\n    gateway: 10.1.1.1\n    mask: 24\n    scope: public\n    state: present"
+                  },
+                  "terraform": {
+                    "resource": "aci_subnet",
+                    "example": "resource \"aci_subnet\" \"web_gw\" {\n  parent_dn = aci_bridge_domain.web_bd.id\n  ip        = \"10.1.1.1/24\"\n  scope     = [\"public\"]\n}"
+                  },
+                  "children": []
+                },
+                {
+                  "id": "fvRsCtx",
+                  "cls": "fvRsCtx",
+                  "label": "RS → VRF",
+                  "dn": "uni/tn-{tenant}/BD-{bd}/rsctx",
+                  "rn": "rsctx",
+                  "desc": "Relationship source binding the bridge domain to its VRF. This is how ACI knows which routing table a BD belongs to. 'Rs' prefix = relationship source (the object pointing to the target).",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "fvAp",
+              "cls": "fvAp",
+              "label": "Application Profile",
+              "dn": "uni/tn-{tenant}/ap-{name}",
+              "rn": "ap-{name}",
+              "desc": "A logical container that groups EPGs representing tiers of an application. For example, a 3-tier app might have Web, App, and DB EPGs under one Application Profile. It's an organizational construct — it doesn't enforce policy by itself.",
+              "exam": "1.6b — Implement ACI logical constructs: Application profile",
+              "rest": {
+                "method": "POST",
+                "url": "/api/mo/uni/tn-Production/ap-WebApp.json",
+                "body": "{ \"fvAp\": { \"attributes\": { \"name\": \"WebApp\" } } }"
+              },
+              "ansible": {
+                "module": "cisco.aci.aci_ap",
+                "example": "- cisco.aci.aci_ap:\n    tenant: Production\n    ap: WebApp\n    state: present"
+              },
+              "terraform": {
+                "resource": "aci_application_profile",
+                "example": "resource \"aci_application_profile\" \"webapp\" {\n  tenant_dn = aci_tenant.prod.id\n  name      = \"WebApp\"\n}"
+              },
+              "children": [
+                {
+                  "id": "fvAEPg",
+                  "cls": "fvAEPg",
+                  "label": "EPG",
+                  "dn": "uni/tn-{tenant}/ap-{ap}/epg-{name}",
+                  "rn": "epg-{name}",
+                  "desc": "An Endpoint Group is the fundamental unit of policy in ACI. Endpoints (servers, VMs) belong to EPGs. All communication between EPGs requires a contract — this is ACI's whitelist model. EPGs bind to a bridge domain and can be associated with physical or VMM domains.",
+                  "exam": "1.6e — Implement ACI logical constructs: Endpoint groups",
+                  "rest": {
+                    "method": "POST",
+                    "url": "/api/mo/uni/tn-Production/ap-WebApp/epg-Web.json",
+                    "body": "{ \"fvAEPg\": { \"attributes\": { \"name\": \"Web\" }, \"children\": [ { \"fvRsBd\": { \"attributes\": { \"tnFvBDName\": \"Web_BD\" } } }, { \"fvRsDomAtt\": { \"attributes\": { \"tDn\": \"uni/phys-Bare_Metal\" } } } ] } }"
+                  },
+                  "ansible": {
+                    "module": "cisco.aci.aci_epg",
+                    "example": "- cisco.aci.aci_epg:\n    tenant: Production\n    ap: WebApp\n    epg: Web\n    bd: Web_BD\n    state: present"
+                  },
+                  "terraform": {
+                    "resource": "aci_application_epg",
+                    "example": "resource \"aci_application_epg\" \"web\" {\n  application_profile_dn = aci_application_profile.webapp.id\n  name                   = \"Web\"\n  relation_fv_rs_bd      = aci_bridge_domain.web_bd.id\n}"
+                  },
+                  "children": [
+                    { "id": "fvRsBd", "cls": "fvRsBd", "label": "RS → Bridge Domain", "dn": ".../epg-{epg}/rsbd", "rn": "rsbd", "desc": "Binds this EPG to a bridge domain. Every EPG must be associated with exactly one BD.", "children": [] },
+                    { "id": "fvRsCons", "cls": "fvRsCons", "label": "RS → Consumer Contract", "dn": ".../epg-{epg}/rscons-{contract}", "rn": "rscons-{contract}", "desc": "Makes this EPG a consumer of a contract. The consumer initiates traffic toward the provider EPG.", "children": [] },
+                    { "id": "fvRsProv", "cls": "fvRsProv", "label": "RS → Provider Contract", "dn": ".../epg-{epg}/rsprov-{contract}", "rn": "rsprov-{contract}", "desc": "Makes this EPG a provider of a contract. The provider offers a service that consumers access.", "children": [] },
+                    { "id": "fvRsDomAtt", "cls": "fvRsDomAtt", "label": "RS → Domain", "dn": ".../epg-{epg}/rsdomAtt-[{domDn}]", "rn": "rsdomAtt-[{domDn}]", "desc": "Associates this EPG with a physical or VMM domain. This determines which ports/VLANs can host endpoints in the EPG.", "children": [] },
+                    {
+                      "id": "fvRsPathAtt",
+                      "cls": "fvRsPathAtt",
+                      "label": "Static Path Binding",
+                      "dn": ".../epg-{epg}/rspathAtt-[{path}]",
+                      "rn": "rspathAtt-[{path}]",
+                      "desc": "Statically binds a port/PC/vPC to this EPG with a specific VLAN encapsulation. The path DN references the topology path (e.g., topology/pod-1/paths-101/pathep-[eth1/1]).",
+                      "exam": "3.1 — Layer 2 connectivity: EPG port bindings",
+                      "rest": {
+                        "method": "POST",
+                        "url": "/api/mo/uni/tn-Production/ap-WebApp/epg-Web/rspathAtt-[topology/pod-1/paths-101/pathep-[eth1/1]].json",
+                        "body": "{ \"fvRsPathAtt\": { \"attributes\": { \"tDn\": \"topology/pod-1/paths-101/pathep-[eth1/1]\", \"encap\": \"vlan-100\", \"mode\": \"regular\" } } }"
+                      },
+                      "ansible": {
+                        "module": "cisco.aci.aci_static_binding_to_epg",
+                        "example": "- cisco.aci.aci_static_binding_to_epg:\n    tenant: Production\n    ap: WebApp\n    epg: Web\n    encap_id: 100\n    deploy_immediacy: immediate\n    interface_mode: untagged\n    interface_type: switch_port\n    pod_id: 1\n    leafs: 101\n    interface: \"1/1\"\n    state: present"
+                      },
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "vzBrCP",
+              "cls": "vzBrCP",
+              "label": "Contract",
+              "dn": "uni/tn-{tenant}/brc-{name}",
+              "rn": "brc-{name}",
+              "desc": "A contract defines what traffic is allowed between EPGs (or ESGs). It contains subjects, which reference filters. Contracts are the core of ACI's whitelist security model: no contract = no communication between EPGs. Scope can be context (VRF), tenant, application-profile, or global.",
+              "exam": "1.6f — Contracts (filters, vzAny, preferred group)",
+              "rest": {
+                "method": "POST",
+                "url": "/api/mo/uni/tn-Production/brc-Web_to_App.json",
+                "body": "{ \"vzBrCP\": { \"attributes\": { \"name\": \"Web_to_App\", \"scope\": \"context\" }, \"children\": [{ \"vzSubj\": { \"attributes\": { \"name\": \"http_traffic\" }, \"children\": [{ \"vzRsSubjFiltAtt\": { \"attributes\": { \"tnVzFilterName\": \"HTTP_Filter\" } } }] } }] } }"
+              },
+              "ansible": {
+                "module": "cisco.aci.aci_contract",
+                "example": "- cisco.aci.aci_contract:\n    tenant: Production\n    contract: Web_to_App\n    scope: context\n    state: present"
+              },
+              "terraform": {
+                "resource": "aci_contract",
+                "example": "resource \"aci_contract\" \"web_to_app\" {\n  tenant_dn = aci_tenant.prod.id\n  name      = \"Web_to_App\"\n  scope     = \"context\"\n}"
+              },
+              "children": [
+                {
+                  "id": "vzSubj",
+                  "cls": "vzSubj",
+                  "label": "Subject",
+                  "dn": "uni/tn-{tenant}/brc-{contract}/subj-{name}",
+                  "rn": "subj-{name}",
+                  "desc": "A subject within a contract. Subjects bind to filters and can apply service graphs. Each subject can reference one or more filters and can specify direction (in, out, both).",
+                  "children": [
+                    { "id": "vzRsSubjFiltAtt", "cls": "vzRsSubjFiltAtt", "label": "RS → Filter", "dn": ".../subj-{subj}/rssubjFiltAtt-{filter}", "rn": "rssubjFiltAtt-{filter}", "desc": "Links a subject to a filter. This is the relationship that says 'this contract subject applies these traffic rules.'", "children": [] }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "vzFilter",
+              "cls": "vzFilter",
+              "label": "Filter",
+              "dn": "uni/tn-{tenant}/flt-{name}",
+              "rn": "flt-{name}",
+              "desc": "A filter defines traffic classification rules (like an ACL). It contains filter entries that match on protocol, ports, etc. Filters are referenced by contract subjects.",
+              "rest": {
+                "method": "POST",
+                "url": "/api/mo/uni/tn-Production/flt-HTTP_Filter.json",
+                "body": "{ \"vzFilter\": { \"attributes\": { \"name\": \"HTTP_Filter\" }, \"children\": [{ \"vzEntry\": { \"attributes\": { \"name\": \"http\", \"etherT\": \"ip\", \"prot\": \"tcp\", \"dFromPort\": \"80\", \"dToPort\": \"80\" } } }] } }"
+              },
+              "ansible": {
+                "module": "cisco.aci.aci_filter",
+                "example": "- cisco.aci.aci_filter:\n    tenant: Production\n    filter: HTTP_Filter\n    state: present"
+              },
+              "terraform": {
+                "resource": "aci_filter",
+                "example": "resource \"aci_filter\" \"http\" {\n  tenant_dn = aci_tenant.prod.id\n  name      = \"HTTP_Filter\"\n}"
+              },
+              "children": [
+                {
+                  "id": "vzEntry",
+                  "cls": "vzEntry",
+                  "label": "Filter Entry",
+                  "dn": "uni/tn-{tenant}/flt-{filter}/e-{name}",
+                  "rn": "e-{name}",
+                  "desc": "An individual match rule within a filter. Specifies EtherType, IP protocol, source/destination ports. Multiple entries in a filter act as OR logic.",
+                  "ansible": {
+                    "module": "cisco.aci.aci_filter_entry",
+                    "example": "- cisco.aci.aci_filter_entry:\n    tenant: Production\n    filter: HTTP_Filter\n    entry: http\n    ether_type: ip\n    ip_protocol: tcp\n    dst_port: 80\n    state: present"
+                  },
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "vzTaboo",
+              "cls": "vzTaboo",
+              "label": "Taboo Contract",
+              "dn": "uni/tn-{tenant}/taboo-{name}",
+              "rn": "taboo-{name}",
+              "desc": "A deny contract. Unlike regular contracts (whitelist), taboo contracts explicitly deny matching traffic. Taboo rules are unidirectional — they deny traffic coming toward the EPG that provides the taboo contract.",
+              "children": []
+            },
+            {
+              "id": "vzCPIf",
+              "cls": "vzCPIf",
+              "label": "Contract Interface",
+              "dn": "uni/tn-{tenant}/cif-{name}",
+              "rn": "cif-{name}",
+              "desc": "An exported contract interface. Used to share contracts between tenants. The providing tenant exports the contract, and consuming tenants import it via a contract interface.",
+              "children": []
+            },
+            {
+              "id": "vzAny",
+              "cls": "vzAny",
+              "label": "vzAny",
+              "dn": "uni/tn-{tenant}/ctx-{vrf}/any",
+              "rn": "any",
+              "desc": "A special construct representing ALL EPGs in a VRF simultaneously. Applying a contract to vzAny means every EPG in that VRF provides/consumes it — no per-EPG binding needed. Useful for shared services (DNS, NTP). Located under the VRF, not the tenant root.",
+              "exam": "1.6f — Contracts (filters, vzAny, preferred group)",
+              "rest": {
+                "method": "POST",
+                "url": "/api/mo/uni/tn-Production/ctx-Prod_VRF/any.json",
+                "body": "{ \"vzAny\": { \"attributes\": { \"prefGrMemb\": \"disabled\" }, \"children\": [{ \"vzRsAnyToCons\": { \"attributes\": { \"tnVzBrCPName\": \"DNS_Contract\" } } }] } }"
+              },
+              "children": []
+            },
+            {
+              "id": "fvESg",
+              "cls": "fvESg",
+              "label": "Endpoint Security Group",
+              "dn": "uni/tn-{tenant}/ap-{ap}/esg-{name}",
+              "rn": "esg-{name}",
+              "desc": "ESGs decouple security policy from network-level EPG groupings. Instead of VLAN-based membership, ESGs use tag-based or IP-based selectors. Contracts are applied to ESGs the same way as EPGs. Introduced to support microsegmentation without VLAN sprawl.",
+              "exam": "1.6g — Endpoint Security Groups",
+              "children": []
+            },
+            {
+              "id": "l3extOut",
+              "cls": "l3extOut",
+              "label": "L3 Outside",
+              "dn": "uni/tn-{tenant}/out-{name}",
+              "rn": "out-{name}",
+              "desc": "Defines external Layer 3 connectivity — how the ACI fabric peers with routers outside the fabric. Supports OSPF, EIGRP, BGP, or static routes. Contains logical node profiles, interface profiles, and external EPGs.",
+              "exam": "3.2 — Implement Layer 3 Out",
+              "rest": {
+                "method": "POST",
+                "url": "/api/mo/uni/tn-Production/out-Corp_L3Out.json",
+                "body": "{ \"l3extOut\": { \"attributes\": { \"name\": \"Corp_L3Out\" }, \"children\": [ { \"l3extRsEctx\": { \"attributes\": { \"tnFvCtxName\": \"Prod_VRF\" } } } ] } }"
+              },
+              "ansible": {
+                "module": "cisco.aci.aci_l3out",
+                "example": "- cisco.aci.aci_l3out:\n    tenant: Production\n    l3out: Corp_L3Out\n    vrf: Prod_VRF\n    domain: L3_Domain\n    route_control: export\n    state: present"
+              },
+              "terraform": {
+                "resource": "aci_l3_outside",
+                "example": "resource \"aci_l3_outside\" \"corp\" {\n  tenant_dn              = aci_tenant.prod.id\n  name                   = \"Corp_L3Out\"\n  relation_l3ext_rs_ectx = aci_vrf.prod_vrf.id\n}"
+              },
+              "children": [
+                {
+                  "id": "l3extLNodeP",
+                  "cls": "l3extLNodeP",
+                  "label": "Logical Node Profile",
+                  "dn": ".../out-{l3out}/lnodep-{name}",
+                  "rn": "lnodep-{name}",
+                  "desc": "Identifies which leaf/spine nodes participate in this L3Out. Contains references to specific nodes by their fabric node ID and an optional router ID.",
+                  "children": [
+                    {
+                      "id": "l3extLIfP",
+                      "cls": "l3extLIfP",
+                      "label": "Logical Interface Profile",
+                      "dn": ".../lnodep-{np}/lifp-{name}",
+                      "rn": "lifp-{name}",
+                      "desc": "Defines the interfaces used for external connectivity and their settings (IP, encap, etc). Contains the actual interface paths and addresses.",
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "id": "l3extInstP",
+                  "cls": "l3extInstP",
+                  "label": "External EPG",
+                  "dn": ".../out-{l3out}/instP-{name}",
+                  "rn": "instP-{name}",
+                  "desc": "An external EPG classifies traffic from external networks. External subnets defined here determine which external prefixes belong to this External EPG. Contracts are applied here to control internal-to-external traffic.",
+                  "children": [
+                    { "id": "l3extSubnet", "cls": "l3extSubnet", "label": "External Subnet", "dn": ".../instP-{extEpg}/extsubnet-[{ip}]", "rn": "extsubnet-[{ip}]", "desc": "Defines an external prefix that belongs to this External EPG. Scope flags control route import/export and security enforcement.", "children": [] }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "vnsAbsGraph",
+              "cls": "vnsAbsGraph",
+              "label": "Service Graph Template",
+              "dn": "uni/tn-{tenant}/AbsGraph-{name}",
+              "rn": "AbsGraph-{name}",
+              "desc": "A service graph defines a chain of L4-L7 service functions (firewalls, load balancers) inserted into the data path between EPGs. The template is applied to a contract subject to redirect traffic through the service nodes.",
+              "exam": "4.3 — Implement service graph",
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "infraInfra",
+          "cls": "infraInfra",
+          "label": "Infrastructure",
+          "dn": "uni/infra",
+          "rn": "infra",
+          "desc": "Contains all infrastructure-level policies: switch profiles, interface profiles, policy groups, AEPs, VLAN pools, and domains. This is the Access Policy side of ACI — it defines HOW things connect to the fabric.",
+          "exam": "1.5a — ACI Access policies",
+          "children": [
+            {
+              "id": "infraNodeP",
+              "cls": "infraNodeP",
+              "label": "Leaf Switch Profile",
+              "dn": "uni/infra/nprof-{name}",
+              "rn": "nprof-{name}",
+              "desc": "Identifies which leaf switches (by selector) use a given interface profile. This is the first link in the access policy chain: Switch Profile → Interface Profile → Policy Group → AEP → Domain → VLAN Pool.",
+              "exam": "1.5a — Access policies",
+              "children": [
+                { "id": "infraLeafS", "cls": "infraLeafS", "label": "Leaf Selector", "dn": ".../nprof-{np}/leaves-{name}-typ-range", "rn": "leaves-{name}-typ-range", "desc": "Selects specific leaf nodes by ID range (e.g., 101-102). Child infraNodeBlk defines the actual node ID range.", "children": [] },
+                { "id": "infraRsAccPortP", "cls": "infraRsAccPortP", "label": "RS → Interface Profile", "dn": ".../nprof-{np}/rsaccPortP-[...]", "rn": "rsaccPortP-[{ifProfDn}]", "desc": "Links this switch profile to an interface profile. Multiple interface profiles can be associated.", "children": [] }
+              ]
+            },
+            {
+              "id": "infraAccPortP",
+              "cls": "infraAccPortP",
+              "label": "Leaf Interface Profile",
+              "dn": "uni/infra/accportprof-{name}",
+              "rn": "accportprof-{name}",
+              "desc": "Defines which ports on the leaf use which policy groups. Contains port selectors that map port ranges to access/PC/vPC policy groups.",
+              "children": [
+                { "id": "infraHPortS", "cls": "infraHPortS", "label": "Access Port Selector", "dn": ".../accportprof-{ifp}/hports-{name}-typ-range", "rn": "hports-{name}-typ-range", "desc": "Selects specific ports and binds them to an interface policy group. Child infraPortBlk defines the port range (e.g., 1/1 to 1/10).", "children": [] }
+              ]
+            },
+            {
+              "id": "infraFuncP",
+              "cls": "infraFuncP",
+              "label": "Function Policies",
+              "dn": "uni/infra/funcprof",
+              "rn": "funcprof",
+              "desc": "Container for interface policy groups (access, PC, vPC). Policy groups bundle interface-level settings (CDP, LLDP, LACP, speed, etc.) and bind to an AEP.",
+              "children": [
+                { "id": "infraAccPortGrp", "cls": "infraAccPortGrp", "label": "Access Port Policy Group", "dn": "uni/infra/funcprof/accportgrp-{name}", "rn": "accportgrp-{name}", "desc": "Policy group for a single access port. Bundles CDP/LLDP/link policies and associates with an AEP. Used for individual server connections.", "children": [] },
+                { "id": "infraAccBndlGrp_pc", "cls": "infraAccBndlGrp", "label": "PC Policy Group", "dn": "uni/infra/funcprof/accbundle-{name}", "rn": "accbundle-{name}", "desc": "Policy group for a port-channel (single leaf). lagT='link' for standard LACP port-channel.", "children": [] },
+                { "id": "infraAccBndlGrp_vpc", "cls": "infraAccBndlGrp", "label": "vPC Policy Group", "dn": "uni/infra/funcprof/accbundle-{name}", "rn": "accbundle-{name}", "desc": "Policy group for virtual port-channel (across two leaves). lagT='node' for vPC. Requires a vPC explicit protection group between the two leaf switches.", "children": [] }
+              ]
+            },
+            {
+              "id": "infraAttEntityP",
+              "cls": "infraAttEntityP",
+              "label": "Attachable Entity Profile (AEP)",
+              "dn": "uni/infra/attentp-{name}",
+              "rn": "attentp-{name}",
+              "desc": "The AEP is the glue between interface policy groups and domains. It links physical/VMM domains to the ports that policy groups define. Without an AEP, ports have no VLAN pool association and can't deploy EPGs.",
+              "exam": "1.5a — Access policies",
+              "rest": {
+                "method": "POST",
+                "url": "/api/mo/uni/infra/attentp-Bare_Metal_AEP.json",
+                "body": "{ \"infraAttEntityP\": { \"attributes\": { \"name\": \"Bare_Metal_AEP\" }, \"children\": [{ \"infraRsDomP\": { \"attributes\": { \"tDn\": \"uni/phys-Bare_Metal\" } } }] } }"
+              },
+              "ansible": {
+                "module": "cisco.aci.aci_aep",
+                "example": "- cisco.aci.aci_aep:\n    aep: Bare_Metal_AEP\n    state: present"
+              },
+              "children": []
+            },
+            {
+              "id": "fvnsVlanInstP",
+              "cls": "fvnsVlanInstP",
+              "label": "VLAN Pool",
+              "dn": "uni/infra/vlanns-[{name}]-{allocMode}",
+              "rn": "vlanns-[{name}]-{allocMode}",
+              "desc": "Defines a range of VLANs available for use. Allocation mode is 'static' (admin-assigned VLANs for bare metal) or 'dynamic' (APIC-assigned for VMM integration). Referenced by domains.",
+              "children": [
+                { "id": "fvnsEncapBlk", "cls": "fvnsEncapBlk", "label": "VLAN Range", "dn": ".../vlanns-[{pool}]-{mode}/from-[vlan-{n}]-to-[vlan-{m}]", "rn": "from-[vlan-{n}]-to-[vlan-{m}]", "desc": "A contiguous block of VLAN IDs within a pool. Role can be 'external' (for L3Outs) or 'internal'.", "children": [] }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "physDomP",
+          "cls": "physDomP",
+          "label": "Physical Domain",
+          "dn": "uni/phys-{name}",
+          "rn": "phys-{name}",
+          "desc": "A physical domain links a VLAN pool to physical (bare-metal) connectivity. EPGs reference domains to determine which VLANs are available on which ports. The chain: VLAN Pool ← Domain ← AEP ← Policy Group ← Interface Profile ← Switch Profile.",
+          "exam": "1.5a — Access policies",
+          "children": []
+        },
+        {
+          "id": "l3extDomP",
+          "cls": "l3extDomP",
+          "label": "L3 External Domain",
+          "dn": "uni/l3dom-{name}",
+          "rn": "l3dom-{name}",
+          "desc": "Domain for external L3 routed connectivity. Associates a VLAN pool with L3Out interfaces. Required when configuring L3Outs.",
+          "children": []
+        },
+        {
+          "id": "vmmProvP",
+          "cls": "vmmProvP",
+          "label": "VMM Provider",
+          "dn": "uni/vmmp-{vendor}",
+          "rn": "vmmp-{vendor}",
+          "desc": "Top-level container for a VMM vendor (VMware, Microsoft, OpenStack, etc.). System-created — you don't create these yourself.",
+          "exam": "4.1 — Implement virtual networking integration",
+          "children": [
+            {
+              "id": "vmmDomP",
+              "cls": "vmmDomP",
+              "label": "VMM Domain",
+              "dn": "uni/vmmp-{vendor}/dom-{name}",
+              "rn": "dom-{name}",
+              "desc": "A VMM domain integrates ACI with a hypervisor management system. For VMware, this creates a DVS (Distributed Virtual Switch) in vCenter. APIC pushes port groups for EPGs automatically. Requires a dynamic VLAN pool.",
+              "exam": "4.1a — VMware vCenter DVS integration\n4.2 — Resolution and deployment immediacy",
+              "rest": {
+                "method": "POST",
+                "url": "/api/mo/uni/vmmp-VMware/dom-VMware_VDS.json",
+                "body": "{ \"vmmDomP\": { \"attributes\": { \"name\": \"VMware_VDS\" }, \"children\": [{ \"vmmCtrlrP\": { \"attributes\": { \"name\": \"vCenter1\", \"hostOrIp\": \"10.1.1.50\", \"rootContName\": \"DataCenter1\" } } }] } }"
+              },
+              "ansible": {
+                "module": "cisco.aci.aci_domain",
+                "example": "- cisco.aci.aci_domain:\n    domain: VMware_VDS\n    domain_type: vmm\n    vm_provider: vmware\n    state: present"
+              },
+              "children": [
+                { "id": "vmmCtrlrP", "cls": "vmmCtrlrP", "label": "VMM Controller", "dn": ".../dom-{vmm}/ctrlr-{name}", "rn": "ctrlr-{name}", "desc": "The connection to a specific vCenter/SCVMM/Nutanix Prism controller. Defines credentials, datacenter name, and connection settings.", "children": [] },
+                { "id": "vmmUsrAccP", "cls": "vmmUsrAccP", "label": "VMM Credentials", "dn": ".../dom-{vmm}/usracc-{name}", "rn": "usracc-{name}", "desc": "Credentials used to authenticate to the VMM controller. Stored in the VMM domain.", "children": [] }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "fabricInst",
+          "cls": "fabricInst",
+          "label": "Fabric Policies",
+          "dn": "uni/fabric",
+          "rn": "fabric",
+          "desc": "Contains fabric-wide policies: NTP, DNS, syslog, SNMP, pod policies, and fabric protocol settings. These apply to the infrastructure itself, not tenant workloads.",
+          "exam": "1.5b — Fabric policies\n5.1 — Out-of-band and in-band management",
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "fabricTopology",
+      "cls": "fabricTopology",
+      "label": "Fabric Topology",
+      "dn": "topology",
+      "rn": "topology",
+      "desc": "The physical fabric state — discovered pods, nodes, paths, and interfaces. This branch is mostly read-only (populated by fabric discovery). You reference paths from here when doing static port bindings.",
+      "exam": "1.4 — ACI fabric discovery",
+      "children": [
+        {
+          "id": "fabricPod",
+          "cls": "fabricPod",
+          "label": "Pod",
+          "dn": "topology/pod-{id}",
+          "rn": "pod-{id}",
+          "desc": "A pod is a set of spines and leaves with full-mesh IS-IS connectivity. Multi-Pod extends ACI across multiple pods connected by IPN (Inter-Pod Network).",
+          "exam": "6.1 — Describe Multi-Pod",
+          "children": [
+            {
+              "id": "fabricNode",
+              "cls": "fabricNode",
+              "label": "Fabric Node",
+              "dn": "topology/pod-{pod}/node-{id}",
+              "rn": "node-{id}",
+              "desc": "A discovered switch (leaf, spine, or APIC). The node ID (e.g., 101, 201) is assigned during fabric discovery. Contains the system-level MO (sys) with hardware, interfaces, protocols.",
+              "children": [
+                { "id": "fabricPathEpCont", "cls": "fabricPathEpCont", "label": "Path Endpoint Container", "dn": "topology/pod-{pod}/paths-{node}", "rn": "paths-{node}", "desc": "Container for all path endpoints on this node. Individual paths (pathep) represent physical interfaces and are referenced in static port bindings.", "children": [] }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "aaaUserEp",
+      "cls": "aaaUserEp",
+      "label": "AAA",
+      "dn": "uni/userext",
+      "rn": "userext",
+      "desc": "Authentication, authorization, and accounting policies. Contains local users, TACACS/RADIUS providers, login domains, security domains, and RBAC rules.",
+      "exam": "5.4 — Implement AAA and RBAC",
+      "children": [
+        { "id": "aaaUser", "cls": "aaaUser", "label": "Local User", "dn": "uni/userext/user-{name}", "rn": "user-{name}", "desc": "A locally-defined user account on the APIC. Users are assigned to one or more security domains with specific roles (admin, read-only, etc.).", "children": [] }
+      ]
+    }
+  ]
+}
