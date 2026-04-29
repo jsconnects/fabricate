@@ -95,4 +95,4 @@ Other projects: [LabProof](https://labproof.app) (networking skills validation p
 
 ## Status and contact
 
-This is a working project, not a finished one. Progress is incremental and visible in commits. If you're hiring for a NetDevOps or network automation role and the approach here resonates, reach out — [linkedin.com/in/jsconnects](https://linkedin.com/in/jsconnects).
+This is a working project, not a finished one. Progress is incremental and visible in commits. [linkedin.com/in/jsconnects](https://linkedin.com/in/jsconnects).
